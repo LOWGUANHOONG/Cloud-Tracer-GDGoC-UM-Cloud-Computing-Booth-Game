@@ -1,0 +1,51 @@
+@import 'tailwindcss';
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: 'Space Grotesk', 'Sora', 'Segoe UI', sans-serif;
+  background:
+    radial-gradient(circle at 12% 8%, rgba(59, 130, 246, 0.18), transparent 38%),
+    radial-gradient(circle at 82% 24%, rgba(20, 184, 166, 0.16), transparent 40%),
+    linear-gradient(160deg, #0b1020 0%, #0f172a 56%, #071422 100%);
+  color: #e2e8f0;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.glass-panel {
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.9), rgba(15, 23, 42, 0.62));
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  box-shadow: 0 22px 38px -20px rgba(2, 6, 23, 0.9);
+  backdrop-filter: blur(8px);
+}
+
+.scanline-overlay {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, transparent 0%, rgba(15, 23, 42, 0.28) 50%, transparent 100%);
+  opacity: 0.22;
+  background-size: 100% 4px;
+}
+
+@keyframes revealUp {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.reveal-up {
+  animation: revealUp 0.4s ease-out both;
+}
