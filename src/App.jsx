@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   addEdge,
   Background,
@@ -6,6 +6,7 @@ import {
   MiniMap,
   ReactFlow,
   ReactFlowProvider,
+  SelectionMode,
   useEdgesState,
   useNodesState,
   useReactFlow,
@@ -23,7 +24,11 @@ function CloudTracerBoard() {
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [levelIndex, setLevelIndex] = useState(0);
   const [result, setResult] = useState(null);
-  const { screenToFlowPosition } = useReactFlow();
+  const [isSelectMode, setIsSelectMode] = useState(false);
+  const [selection, setSelection] = useState({ nodes: [], edges: [] });
+  const clipboardRef = useRef(null);
+  const pasteCountRef = useRef(0);
+  const { getViewport, screenToFlowPosition, setViewport } = useReactFlow();
 
   const level = levels[levelIndex];
 
@@ -51,6 +56,26 @@ function CloudTracerBoard() {
     [setEdges]
   );
 
+  const handleAttachVmToTemplate = useCallback(
+    (nodeId, vmType) => {
+      setNodes((currentNodes) =>
+        currentNodes.map((node) => {
+          if (node.id !== nodeId) return node;
+          if (node.data?.label !== 'Instance Template') return node;
+
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              templateVm: vmType,
+            },
+          };
+        })
+      );
+    },
+    [setNodes]
+  );
+
   const onDragOver = useCallback((event) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
@@ -64,33 +89,40 @@ function CloudTracerBoard() {
 
       const template = JSON.parse(payload);
       const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+      const nodeId = `${template.type}-${crypto.randomUUID()}`;
 
       const newNode = {
-        id: `${template.type}-${crypto.randomUUID()}`,
+        id: nodeId,
         type: 'gcpNode',
         position,
         data: {
           label: template.type,
           category: template.category,
+          nodeId,
+          templateVm: template.type === 'Instance Template' ? null : undefined,
+          onAttachVmToTemplate: handleAttachVmToTemplate,
         },
       };
 
       setNodes((currentNodes) => [...currentNodes, newNode]);
+
+      const currentViewport = getViewport();
+      const nextZoom = Math.max(0.75, currentViewport.zoom - 0.04);
+      if (nextZoom !== currentViewport.zoom) {
+        setViewport({ ...currentViewport, zoom: nextZoom }, { duration: 120 });
+      }
     },
-    [screenToFlowPosition, setNodes]
+    [getViewport, handleAttachVmToTemplate, screenToFlowPosition, setNodes, setViewport]
   );
 
   const handleValidate = useCallback(() => {
     setResult(validateLevel(levelIndex, nodes, edges));
   }, [edges, levelIndex, nodes]);
 
-  const goToLevel = useCallback(
-    (nextIndex) => {
-      setLevelIndex(nextIndex);
-      setResult(null);
-    },
-    []
-  );
+  const goToLevel = useCallback((nextIndex) => {
+    setLevelIndex(nextIndex);
+    setResult(null);
+  }, []);
 
   const handleSelectLevel = useCallback(
     (nextIndex) => {
@@ -104,6 +136,123 @@ function CloudTracerBoard() {
     setLevelIndex(0);
     resetCanvas();
   }, [resetCanvas]);
+
+  const handleToggleSelectMode = useCallback(() => {
+    setIsSelectMode((current) => !current);
+  }, []);
+
+  const handleSelectionChange = useCallback(({ nodes: selectedNodes, edges: selectedEdges }) => {
+    setSelection({ nodes: selectedNodes, edges: selectedEdges });
+  }, []);
+
+  const handleKeyboardShortcuts = useCallback(
+    (event) => {
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        if (!selection.nodes.length && !selection.edges.length) return;
+        event.preventDefault();
+
+        const selectedNodeIds = new Set(selection.nodes.map((node) => node.id));
+        const selectedEdgeIds = new Set(selection.edges.map((edge) => edge.id));
+
+        setNodes((currentNodes) => currentNodes.filter((node) => !selectedNodeIds.has(node.id)));
+        setEdges((currentEdges) =>
+          currentEdges.filter(
+            (edge) =>
+              !selectedEdgeIds.has(edge.id) &&
+              !selectedNodeIds.has(edge.source) &&
+              !selectedNodeIds.has(edge.target)
+          )
+        );
+        return;
+      }
+
+      if (!isSelectMode) return;
+
+      const isMetaKey = event.ctrlKey || event.metaKey;
+      const key = event.key.toLowerCase();
+
+      if (isMetaKey && key === 'c') {
+        if (!selection.nodes.length) return;
+        event.preventDefault();
+
+        const selectedNodeIds = new Set(selection.nodes.map((node) => node.id));
+        const selectedEdges = edges.filter(
+          (edge) => selectedNodeIds.has(edge.source) && selectedNodeIds.has(edge.target)
+        );
+
+        clipboardRef.current = {
+          nodes: selection.nodes.map((node) => ({ ...node, selected: false })),
+          edges: selectedEdges.map((edge) => ({ ...edge, selected: false })),
+        };
+        pasteCountRef.current = 0;
+        return;
+      }
+
+      if (isMetaKey && key === 'v') {
+        if (!clipboardRef.current?.nodes?.length) return;
+        event.preventDefault();
+
+        pasteCountRef.current += 1;
+        const offset = 40 * pasteCountRef.current;
+        const idMap = new Map();
+
+        const pastedNodes = clipboardRef.current.nodes.map((node) => {
+          const id = `${node.type || 'node'}-${crypto.randomUUID()}`;
+          idMap.set(node.id, id);
+
+          return {
+            ...node,
+            id,
+            selected: true,
+            position: {
+              x: node.position.x + offset,
+              y: node.position.y + offset,
+            },
+            data: {
+              ...node.data,
+              nodeId: id,
+              onAttachVmToTemplate: handleAttachVmToTemplate,
+            },
+          };
+        });
+
+        const pastedEdges = clipboardRef.current.edges
+          .filter((edge) => idMap.has(edge.source) && idMap.has(edge.target))
+          .map((edge) => ({
+            ...edge,
+            id: `edge-${crypto.randomUUID()}`,
+            source: idMap.get(edge.source),
+            target: idMap.get(edge.target),
+            selected: true,
+          }));
+
+        setNodes((currentNodes) => [
+          ...currentNodes.map((node) => ({ ...node, selected: false })),
+          ...pastedNodes,
+        ]);
+        setEdges((currentEdges) => [
+          ...currentEdges.map((edge) => ({ ...edge, selected: false })),
+          ...pastedEdges,
+        ]);
+        return;
+      }
+
+    },
+    [edges, handleAttachVmToTemplate, isSelectMode, selection.edges, selection.nodes, setEdges, setNodes]
+  );
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyboardShortcuts);
+    return () => window.removeEventListener('keydown', handleKeyboardShortcuts);
+  }, [handleKeyboardShortcuts]);
 
   const miniMapNodeColor = useMemo(
     () => (node) => {
@@ -128,9 +277,11 @@ function CloudTracerBoard() {
           levelIndex={levelIndex}
           nodes={nodes}
           edges={edges}
+          isSelectMode={isSelectMode}
           result={result}
           onValidate={handleValidate}
           onSelectLevel={handleSelectLevel}
+          onToggleSelectMode={handleToggleSelectMode}
           onResetRun={handleResetRun}
         />
 
@@ -143,10 +294,15 @@ function CloudTracerBoard() {
           onConnect={onConnect}
           onDrop={onDrop}
           onDragOver={onDragOver}
+          onSelectionChange={handleSelectionChange}
+          selectionOnDrag={isSelectMode}
+          selectionMode={SelectionMode.Partial}
+          panOnDrag={!isSelectMode}
+          deleteKeyCode={null}
           fitView
           fitViewOptions={{ padding: 0.25 }}
           defaultEdgeOptions={{ animated: true }}
-          className="bg-transparent"
+          className={isSelectMode ? 'bg-transparent cursor-crosshair' : 'bg-transparent'}
         >
           <Background color="#1e293b" gap={22} size={1.1} />
           <MiniMap

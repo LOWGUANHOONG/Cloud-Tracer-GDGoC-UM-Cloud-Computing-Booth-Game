@@ -7,9 +7,11 @@ function MissionPanel({
   levelIndex,
   nodes,
   edges,
+  isSelectMode,
   result,
   onValidate,
   onSelectLevel,
+  onToggleSelectMode,
   onResetRun,
 }) {
   const checklist = getLevelChecklist(levelIndex, nodes, edges);
@@ -84,13 +86,12 @@ function MissionPanel({
                 : 'border-rose-400/40 bg-rose-500/15 text-rose-200'
             }`}
           >
-            {!result.ok && result.kind === 'regression' ? 'Regression: ' : ''}
             {result.message}
           </div>
         </div>
       )}
 
-      <div className="pointer-events-auto absolute bottom-4 left-4">
+      <div className="pointer-events-auto absolute bottom-4 left-4 flex items-end gap-2">
         <button
           type="button"
           onClick={() => setIsHelpOpen((current) => !current)}
@@ -102,11 +103,30 @@ function MissionPanel({
           ?
         </button>
 
+        <button
+          type="button"
+          onClick={onToggleSelectMode}
+          className={`h-11 w-11 rounded-full border text-sm font-semibold transition ${
+            isSelectMode
+              ? 'border-sky-300/80 bg-sky-500/25 text-sky-100'
+              : 'border-slate-500/70 bg-slate-900/85 text-slate-100 hover:border-slate-300'
+          }`}
+          aria-pressed={isSelectMode}
+          aria-label="Toggle select mode"
+          title="Toggle select mode"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true" className="mx-auto h-5 w-5 fill-current">
+            <path d="M4 3l8.3 16 1.5-5.2L19 12.2z" />
+            <path d="M12.7 14.6l3.7 5.4 1.9-1.3-3.7-5.4z" />
+          </svg>
+        </button>
+
         {isHelpOpen && (
           <div className="glass-panel reveal-up absolute bottom-14 left-0 w-[360px] rounded-2xl p-4">
             <p className="text-sm leading-relaxed text-slate-300">{level.briefing}</p>
             <p className="mt-3 rounded-lg border border-slate-700/70 bg-slate-900/50 p-3 text-sm text-slate-200">{level.objective}</p>
-            <p className="mt-2 text-xs text-slate-400">Cumulative mode: this level must pass and all previous levels must still pass.</p>
+            <p className="mt-2 text-xs text-slate-400">Independent mode: only this level rules are validated. Your canvas stays as-is across levels.</p>
+            <p className="mt-2 text-xs text-slate-400">Select mode: box-select and move groups. Ctrl/Cmd+C to copy, Ctrl/Cmd+V to paste, Delete/Backspace to remove selection.</p>
 
             <div className="mt-4 text-xs text-slate-400">
               <span className="uppercase tracking-[0.18em]">Canvas Inventory</span>
@@ -119,7 +139,7 @@ function MissionPanel({
                 {checklist.map((item) => (
                   <p
                     key={`${item.levelCode}-${item.label}`}
-                    className={item.done ? 'text-emerald-300' : item.isCurrentLevelRule ? 'text-amber-200' : 'text-rose-200'}
+                    className={item.done ? 'text-emerald-300' : 'text-amber-200'}
                   >
                     {item.done ? '[OK]' : '[ ]'} {item.levelCode} - {item.label}
                   </p>

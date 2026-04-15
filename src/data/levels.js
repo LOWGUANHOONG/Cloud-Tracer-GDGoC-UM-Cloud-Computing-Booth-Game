@@ -66,11 +66,32 @@ const countDistinctDirectTargets = (edges, labelIndex, fromLabel, toLabel) => {
   return distinctTargets.size;
 };
 
+const countDistinctDirectSources = (edges, labelIndex, fromLabel, toLabel) => {
+  const fromIds = new Set(labelIndex.get(fromLabel) || []);
+  const toIds = new Set(labelIndex.get(toLabel) || []);
+  const distinctSources = new Set();
+
+  for (const edge of edges) {
+    if (fromIds.has(edge.source) && toIds.has(edge.target)) {
+      distinctSources.add(edge.source);
+    }
+  }
+
+  return distinctSources.size;
+};
+
+const hasNodeWithTemplateVm = (nodes, label, templateVm) =>
+  nodes.some((node) => node?.data?.label === label && node?.data?.templateVm === templateVm);
+
 const evaluateRule = (rule, nodes, edges) => {
   const labelIndex = getNodeIdsByLabel(nodes);
 
   if (rule.type === 'path') {
     return hasPathByLabel(nodes, edges, rule.from, rule.to);
+  }
+
+  if (rule.type === 'direct') {
+    return hasDirectConnection(edges, labelIndex, rule.from, rule.to);
   }
 
   if (rule.type === 'forbiddenDirect') {
@@ -85,6 +106,14 @@ const evaluateRule = (rule, nodes, edges) => {
     return countDistinctDirectTargets(edges, labelIndex, rule.from, rule.to) >= rule.min;
   }
 
+  if (rule.type === 'minDistinctDirectSources') {
+    return countDistinctDirectSources(edges, labelIndex, rule.from, rule.to) >= rule.min;
+  }
+
+  if (rule.type === 'templateVmEquals') {
+    return hasNodeWithTemplateVm(nodes, rule.label, rule.templateVm);
+  }
+
   return false;
 };
 
@@ -93,9 +122,9 @@ export const levels = [
     id: 1,
     code: 'L1',
     title: 'The Gateway',
-    briefing: 'Start with secure three-tier ingress before touching data.',
-    objective: 'Build Internet -> Web VM -> Cloud SQL and block direct Internet -> Cloud SQL.',
-    successMessage: 'Gateway baseline secured. Your architecture is ready for traffic growth.',
+    briefing: 'Start with the baseline app tier and data tier chain.',
+    objective: 'Internet -> Web VM -> Cloud SQL.',
+    successMessage: 'Level 1 cleared. Baseline app-to-database routing is complete.',
     rules: [
       {
         type: 'path',
@@ -111,36 +140,43 @@ export const levels = [
         checklist: 'Web VM reaches Cloud SQL.',
         failMessage: 'Data tier is disconnected. Build Web VM -> Cloud SQL.',
       },
-      {
-        type: 'forbiddenDirect',
-        from: 'Internet',
-        to: 'Cloud SQL',
-        checklist: 'Direct Internet -> Cloud SQL is blocked.',
-        failMessage: 'Direct Internet -> Cloud SQL detected. Keep the compute tier in between.',
-      },
     ],
   },
   {
     id: 2,
     code: 'L2',
     title: 'Traffic Surge',
-    briefing: 'Requests spike hard. Extend your existing baseline with elastic ingress handling.',
-    objective: 'Add Load Balancer -> MIG -> Autoscaler without breaking Level 1 security path.',
-    successMessage: 'Elastic ingress online. The architecture now scales with demand.',
+    briefing: 'Shift traffic handling to a managed instance group control path.',
+    objective: 'Internet -> MIG -> Cloud SQL, plus Instance Template -> MIG and Autoscaler -> MIG.',
+    successMessage: 'Level 2 cleared. MIG control plane and data path are in place.',
     rules: [
       {
         type: 'path',
-        from: 'Load Balancer',
+        from: 'Internet',
         to: 'MIG',
-        checklist: 'Load Balancer routes to MIG.',
-        failMessage: 'High-traffic routing is missing. Connect Load Balancer -> MIG.',
+        checklist: 'Internet reaches MIG.',
+        failMessage: 'Missing ingress path. Connect Internet -> MIG.',
       },
       {
         type: 'path',
         from: 'MIG',
-        to: 'Autoscaler',
-        checklist: 'MIG is tied to Autoscaler.',
-        failMessage: 'Autoscaling control missing. Connect MIG -> Autoscaler.',
+        to: 'Cloud SQL',
+        checklist: 'MIG reaches Cloud SQL.',
+        failMessage: 'Data path missing. Connect MIG -> Cloud SQL.',
+      },
+      {
+        type: 'direct',
+        from: 'Instance Template',
+        to: 'MIG',
+        checklist: 'Instance Template connects to MIG.',
+        failMessage: 'Template binding missing. Connect Instance Template -> MIG.',
+      },
+      {
+        type: 'direct',
+        from: 'Autoscaler',
+        to: 'MIG',
+        checklist: 'Autoscaler connects to MIG.',
+        failMessage: 'Autoscaler control missing. Connect Autoscaler -> MIG.',
       },
     ],
   },
@@ -148,10 +184,18 @@ export const levels = [
     id: 3,
     code: 'L3',
     title: 'Regional Blackout',
-    briefing: 'One region fails. Add redundancy while keeping previous levels healthy.',
-    objective: 'Use Global LB to fan out to two distinct MIG nodes.',
-    successMessage: 'Regional resilience active. One regional failure no longer takes the app down.',
+    briefing: 'Move to dual-MIG behind Global LB with mirrored control links.',
+    objective:
+      'Internet -> Global LB -> MIG(1) -> Cloud SQL and Internet -> Global LB -> MIG(2) -> Cloud SQL, plus Autoscaler -> MIG(1)&MIG(2), Instance Template -> MIG(1)&MIG(2).',
+    successMessage: 'Level 3 cleared. Dual-MIG regional pattern is established.',
     rules: [
+      {
+        type: 'path',
+        from: 'Internet',
+        to: 'Global LB',
+        checklist: 'Internet reaches Global LB.',
+        failMessage: 'Missing entry path. Connect Internet -> Global LB.',
+      },
       {
         type: 'minCount',
         label: 'MIG',
@@ -167,36 +211,53 @@ export const levels = [
         checklist: 'Global LB connects directly to two different MIG nodes.',
         failMessage: 'Global LB must connect directly to two separate MIG nodes.',
       },
+      {
+        type: 'minDistinctDirectSources',
+        from: 'MIG',
+        to: 'Cloud SQL',
+        min: 2,
+        checklist: 'Both MIG nodes connect directly to Cloud SQL.',
+        failMessage: 'Connect both MIG nodes to Cloud SQL.',
+      },
+      {
+        type: 'minDistinctDirectTargets',
+        from: 'Autoscaler',
+        to: 'MIG',
+        min: 2,
+        checklist: 'Autoscaler connects to both MIG nodes.',
+        failMessage: 'Autoscaler must connect to both MIG nodes.',
+      },
+      {
+        type: 'minDistinctDirectTargets',
+        from: 'Instance Template',
+        to: 'MIG',
+        min: 2,
+        checklist: 'Instance Template connects to both MIG nodes.',
+        failMessage: 'Instance Template must connect to both MIG nodes.',
+      },
     ],
   },
   {
     id: 4,
     code: 'L4',
     title: 'Edge Acceleration',
-    briefing: 'Latency hurts user experience. Extend the design with edge caching.',
-    objective: 'Build User -> Load Balancer -> Cloud CDN -> Cloud Storage.',
-    successMessage: 'Edge path deployed. Static delivery is now globally optimized.',
+    briefing: 'Keep Level 3 and add CDN/storage links into Global LB.',
+    objective: 'Same as Level 3, plus Cloud CDN -> Global LB and Cloud Storage -> Global LB.',
+    successMessage: 'Level 4 cleared. Edge entry links are attached to Global LB.',
     rules: [
       {
-        type: 'path',
-        from: 'User',
-        to: 'Load Balancer',
-        checklist: 'User traffic reaches the Load Balancer.',
-        failMessage: 'User ingress path missing. Connect User -> Load Balancer.',
-      },
-      {
-        type: 'path',
-        from: 'Load Balancer',
-        to: 'Cloud CDN',
-        checklist: 'Load Balancer routes to Cloud CDN.',
-        failMessage: 'CDN offload missing. Connect Load Balancer -> Cloud CDN.',
-      },
-      {
-        type: 'path',
+        type: 'direct',
         from: 'Cloud CDN',
-        to: 'Cloud Storage',
-        checklist: 'Cloud CDN reaches Cloud Storage origin.',
-        failMessage: 'Static origin path missing. Connect Cloud CDN -> Cloud Storage.',
+        to: 'Global LB',
+        checklist: 'Cloud CDN connects to Global LB.',
+        failMessage: 'Connect Cloud CDN -> Global LB.',
+      },
+      {
+        type: 'direct',
+        from: 'Cloud Storage',
+        to: 'Global LB',
+        checklist: 'Cloud Storage connects to Global LB.',
+        failMessage: 'Connect Cloud Storage -> Global LB.',
       },
     ],
   },
@@ -204,9 +265,9 @@ export const levels = [
     id: 5,
     code: 'L5',
     title: 'The Intruder',
-    briefing: 'Hostile traffic appears. Add perimeter defense to your existing ingress chain.',
-    objective: 'Insert Cloud Armor between Internet and Load Balancer. Block direct Internet -> Load Balancer.',
-    successMessage: 'Perimeter defense enabled. Ingress now filters malicious traffic first.',
+    briefing: 'Keep Level 4 and place Cloud Armor between Internet and Global LB.',
+    objective: 'Internet -> Cloud Armor -> Global LB, with the rest of Level 4 unchanged.',
+    successMessage: 'Level 5 cleared. Cloud Armor now fronts Global LB ingress.',
     rules: [
       {
         type: 'path',
@@ -218,16 +279,16 @@ export const levels = [
       {
         type: 'path',
         from: 'Cloud Armor',
-        to: 'Load Balancer',
-        checklist: 'Cloud Armor forwards to Load Balancer.',
-        failMessage: 'Cloud Armor must sit in front of the Load Balancer.',
+        to: 'Global LB',
+        checklist: 'Cloud Armor forwards to Global LB.',
+        failMessage: 'Cloud Armor must sit in front of Global LB.',
       },
       {
         type: 'forbiddenDirect',
         from: 'Internet',
-        to: 'Load Balancer',
-        checklist: 'Direct Internet -> Load Balancer is blocked.',
-        failMessage: 'Direct Internet -> Load Balancer bypasses Cloud Armor.',
+        to: 'Global LB',
+        checklist: 'Direct Internet -> Global LB is blocked.',
+        failMessage: 'Direct Internet -> Global LB bypasses Cloud Armor.',
       },
     ],
   },
@@ -235,23 +296,38 @@ export const levels = [
     id: 6,
     code: 'L6',
     title: 'Budget Squeezer',
-    briefing: 'Costs rise overnight. Add automated low-cost execution without regressing reliability.',
-    objective: 'Build Cloud Scheduler -> Cloud Function -> Spot VM.',
-    successMessage: 'Cost automation integrated. Scheduled workloads now run on discounted compute.',
+    briefing: 'Keep Level 5 and insert scheduler/function routing between Global LB and both MIGs.',
+    objective: 'Global LB -> Cloud Scheduler -> Cloud Function -> MIG(1)&MIG(2), and Instance Template VM must be Spot VM.',
+    successMessage: 'Level 6 cleared. Scheduler/function chain now fronts both MIG targets.',
     rules: [
       {
-        type: 'path',
-        from: 'Cloud Scheduler',
-        to: 'Cloud Function',
-        checklist: 'Cloud Scheduler triggers Cloud Function.',
-        failMessage: 'Scheduling trigger missing. Connect Cloud Scheduler -> Cloud Function.',
+        type: 'direct',
+        from: 'Global LB',
+        to: 'Cloud Scheduler',
+        checklist: 'Global LB connects to Cloud Scheduler.',
+        failMessage: 'Connect Global LB -> Cloud Scheduler.',
       },
       {
-        type: 'path',
+        type: 'direct',
+        from: 'Cloud Scheduler',
+        to: 'Cloud Function',
+        checklist: 'Cloud Scheduler connects to Cloud Function.',
+        failMessage: 'Connect Cloud Scheduler -> Cloud Function.',
+      },
+      {
+        type: 'minDistinctDirectTargets',
         from: 'Cloud Function',
-        to: 'Spot VM',
-        checklist: 'Cloud Function dispatches Spot VM work.',
-        failMessage: 'Execution handoff missing. Connect Cloud Function -> Spot VM.',
+        to: 'MIG',
+        min: 2,
+        checklist: 'Cloud Function connects to both MIG nodes.',
+        failMessage: 'Cloud Function must connect to both MIG nodes.',
+      },
+      {
+        type: 'templateVmEquals',
+        label: 'Instance Template',
+        templateVm: 'Spot VM',
+        checklist: 'Instance Template is configured with Spot VM.',
+        failMessage: 'For Level 6, drop Spot VM into Instance Template.',
       },
     ],
   },
@@ -259,30 +335,23 @@ export const levels = [
     id: 7,
     code: 'L7',
     title: 'Identity Lockdown',
-    briefing: 'Finalize a production-grade architecture with identity boundaries and least privilege.',
-    objective: 'Build Web VM -> Service Account -> IAM Role -> Cloud Storage while preserving all previous layers.',
-    successMessage: 'Mission complete. You assembled a robust, multi-layer GCP architecture.',
+    briefing: 'Keep Level 6 and add IAM linkage into template control.',
+    objective: 'Add IAM Role -> Service Account -> Instance Template.',
+    successMessage: 'Level 7 cleared. Final identity-control chain is integrated.',
     rules: [
       {
-        type: 'path',
-        from: 'Web VM',
-        to: 'Service Account',
-        checklist: 'Web VM uses a Service Account.',
-        failMessage: 'Identity handoff missing. Connect Web VM -> Service Account.',
-      },
-      {
-        type: 'path',
-        from: 'Service Account',
-        to: 'IAM Role',
-        checklist: 'Service Account is bound to IAM Role.',
-        failMessage: 'Role binding missing. Connect Service Account -> IAM Role.',
-      },
-      {
-        type: 'path',
+        type: 'direct',
         from: 'IAM Role',
-        to: 'Cloud Storage',
-        checklist: 'IAM Role grants Cloud Storage access.',
-        failMessage: 'Least-privilege chain incomplete. Connect IAM Role -> Cloud Storage.',
+        to: 'Service Account',
+        checklist: 'IAM Role connects to Service Account.',
+        failMessage: 'Connect IAM Role -> Service Account.',
+      },
+      {
+        type: 'direct',
+        from: 'Service Account',
+        to: 'Instance Template',
+        checklist: 'Service Account connects to Instance Template.',
+        failMessage: 'Connect Service Account -> Instance Template.',
       },
     ],
   },
@@ -298,24 +367,25 @@ const resolveLevelIndex = (levelOrIndex) => {
   return levels.findIndex((level) => level.code === levelOrIndex.code);
 };
 
-const getCumulativeRules = (levelIndex) =>
-  levels.slice(0, levelIndex + 1).flatMap((level, index) =>
-    (level.rules || []).map((rule) => ({
-      ...rule,
-      levelIndex: index,
-      levelCode: level.code,
-    }))
-  );
+const getLevelRules = (levelIndex) => {
+  const level = levels[levelIndex];
+  if (!level) return [];
+
+  return (level.rules || []).map((rule) => ({
+    ...rule,
+    levelCode: level.code,
+  }));
+};
 
 export const getLevelChecklist = (levelIndex, nodes, edges) => {
   const resolved = resolveLevelIndex(levelIndex);
   if (resolved < 0) return [];
 
-  return getCumulativeRules(resolved).map((rule) => ({
+  return getLevelRules(resolved).map((rule) => ({
     label: rule.checklist,
     done: evaluateRule(rule, nodes, edges),
     levelCode: rule.levelCode,
-    isCurrentLevelRule: rule.levelIndex === resolved,
+    isCurrentLevelRule: true,
   }));
 };
 
@@ -325,17 +395,14 @@ export const validateLevel = (levelOrIndex, nodes, edges) => {
   if (!nodes.length) return { ok: false, message: 'Canvas is empty. Drag components onto the workspace.' };
 
   const level = levels[levelIndex];
-  const cumulativeRules = getCumulativeRules(levelIndex);
+  const levelRules = getLevelRules(levelIndex);
 
-  for (const rule of cumulativeRules) {
+  for (const rule of levelRules) {
     if (!evaluateRule(rule, nodes, edges)) {
-      const isRegression = rule.levelIndex < levelIndex;
       return {
         ok: false,
-        kind: isRegression ? 'regression' : 'current',
-        message: isRegression
-          ? `Regression detected in ${rule.levelCode}. ${rule.failMessage}`
-          : rule.failMessage,
+        kind: 'current',
+        message: rule.failMessage,
       };
     }
   }
