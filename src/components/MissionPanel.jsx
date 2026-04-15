@@ -1,5 +1,15 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { getLevelChecklist, getLevelProgress, summarizeLevelInventory } from '../data/levels';
+
+const LEVEL_PROBLEMS = {
+  L1: 'You have just launched your startup. You have a Web Server that needs to talk to the internet so users can see your site. You also have a Database that stores all your users\' private passwords and data. If a hacker connects directly to your database, your company is finished.',
+  L2: 'Your startup is a success! Suddenly, a famous influencer tweets about your site. Traffic jumps from 10 users to 10,000 in one minute. Your single Web VM from Level 1 starts smoking and crashes (HTTP 500 error).',
+  L3: 'Your site is booming! But suddenly, a massive storm or power grid failure hits the entire region (e.g., us-central1). Even though you have an Autoscaler, it can\'t find any \'living\' hardware in that city to start new servers. Your global users are seeing a \'Connection Timed Out\' error.',
+  L4: 'Your global architecture is reliable (thanks to Level 3), but users in Malaysia are complaining. Every time they click a button, they have to wait for a \'handshake\' to travel all the way to a data center in Europe or the US. The physical distance is causing Latency (lag). We need to move the data closer to the user.',
+  L5: 'A rival gaming company is jealous of your success. They launch a DDoS attack, using a botnet of 100,000 hijacked computers to flood your Global Load Balancer with fake traffic. Your Autoscaler (from Level 2) tries to help, but it starts spinning up thousands of VMs to handle the fake traffic, and your cloud bill skyrockets. Even worse, hackers are trying SQL Injection to steal your user data.',
+  L6: 'Your game is a global hit, but your finance manager just showed you the monthly cloud bill. Running hundreds of high-performance VMs 24/7 in multiple regions is draining your startup\'s budget. To keep the company alive, you need to find a way to run the same infrastructure for 90% less cost without sacrificing performance for your players.',
+  L7: 'A hacker exploits a tiny bug to \'get inside\' one of your Web VMs. Because your VMs have \'Editor\' power, the hacker can now delete your entire database and wipe your storage. Your own excessive permissions are the \'Silent Killer\' of your empire.',
+};
 
 function MissionPanel({
   levels,
@@ -16,8 +26,34 @@ function MissionPanel({
 }) {
   const checklist = getLevelChecklist(levelIndex, nodes, edges);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [isProblemOpen, setIsProblemOpen] = useState(true);
   const [hoveredLevel, setHoveredLevel] = useState(null);
+  const problemButtonRef = useRef(null);
+  const problemPanelRef = useRef(null);
   const inventory = useMemo(() => summarizeLevelInventory(nodes) || 'No components placed.', [nodes]);
+  const levelProblem = LEVEL_PROBLEMS[level.code] || 'No problem statement available for this level yet.';
+
+  useEffect(() => {
+    setIsProblemOpen(true);
+  }, [levelIndex]);
+
+  useEffect(() => {
+    if (!isProblemOpen) return;
+
+    const handleOutsidePointer = (event) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+
+      if (problemPanelRef.current?.contains(target) || problemButtonRef.current?.contains(target)) {
+        return;
+      }
+
+      setIsProblemOpen(false);
+    };
+
+    document.addEventListener('mousedown', handleOutsidePointer, true);
+    return () => document.removeEventListener('mousedown', handleOutsidePointer, true);
+  }, [isProblemOpen]);
 
   return (
     <section className="pointer-events-none absolute inset-0 z-20">
@@ -28,6 +64,27 @@ function MissionPanel({
             <h1 className="mt-1 text-2xl font-semibold text-slate-100">
               {level.code}: {level.title}
             </h1>
+            <button
+              ref={problemButtonRef}
+              type="button"
+              onClick={() => setIsProblemOpen((current) => !current)}
+              className="mt-2 rounded-lg border border-amber-300/70 bg-amber-500/20 px-3 py-1 text-xs font-semibold uppercase tracking-[0.1em] text-amber-100 transition hover:border-amber-200"
+              aria-expanded={isProblemOpen}
+              aria-label="Toggle level problem statement"
+              title="Show level problem"
+            >
+              Problems
+            </button>
+
+            {isProblemOpen && (
+              <div
+                ref={problemPanelRef}
+                className="glass-panel reveal-up absolute left-4 top-28 z-30 w-[min(560px,calc(100vw-3rem))] rounded-xl border border-amber-300/35 p-4"
+              >
+                <p className="text-xs uppercase tracking-[0.2em] text-amber-200">Level Problem</p>
+                <p className="mt-2 text-sm leading-relaxed text-slate-200">{levelProblem}</p>
+              </div>
+            )}
           </div>
 
           <div className="flex flex-wrap justify-center gap-2">
