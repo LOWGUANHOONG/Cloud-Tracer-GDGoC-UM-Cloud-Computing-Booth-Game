@@ -2,7 +2,6 @@ import { useCallback, useMemo, useState } from 'react';
 import {
   addEdge,
   Background,
-  Controls,
   MarkerType,
   MiniMap,
   ReactFlow,
@@ -27,8 +26,6 @@ function CloudTracerBoard() {
   const { screenToFlowPosition } = useReactFlow();
 
   const level = levels[levelIndex];
-  const canGoPrev = levelIndex > 0;
-  const canGoNext = levelIndex < levels.length - 1;
 
   const resetCanvas = useCallback(() => {
     setNodes([]);
@@ -84,26 +81,29 @@ function CloudTracerBoard() {
   );
 
   const handleValidate = useCallback(() => {
-    setResult(validateLevel(level, nodes, edges));
-  }, [edges, level, nodes]);
+    setResult(validateLevel(levelIndex, nodes, edges));
+  }, [edges, levelIndex, nodes]);
 
   const goToLevel = useCallback(
     (nextIndex) => {
       setLevelIndex(nextIndex);
-      resetCanvas();
+      setResult(null);
     },
-    [resetCanvas]
+    []
   );
 
-  const handlePrevLevel = useCallback(() => {
-    if (!canGoPrev) return;
-    goToLevel(levelIndex - 1);
-  }, [canGoPrev, goToLevel, levelIndex]);
+  const handleSelectLevel = useCallback(
+    (nextIndex) => {
+      if (nextIndex < 0 || nextIndex >= levels.length) return;
+      goToLevel(nextIndex);
+    },
+    [goToLevel]
+  );
 
-  const handleNextLevel = useCallback(() => {
-    if (!canGoNext) return;
-    goToLevel(levelIndex + 1);
-  }, [canGoNext, goToLevel, levelIndex]);
+  const handleResetRun = useCallback(() => {
+    setLevelIndex(0);
+    resetCanvas();
+  }, [resetCanvas]);
 
   const miniMapNodeColor = useMemo(
     () => (node) => {
@@ -122,17 +122,17 @@ function CloudTracerBoard() {
 
       <main className="relative flex-1 overflow-hidden rounded-2xl border border-slate-700/70 bg-slate-950/70">
         <div className="scanline-overlay" />
-        <div className="absolute left-4 top-4 z-20">
-          <MissionPanel
-            level={level}
-            levelIndex={levelIndex}
-            nodes={nodes}
-            result={result}
-            onValidate={handleValidate}
-            onPrevLevel={handlePrevLevel}
-            onNextLevel={handleNextLevel}
-          />
-        </div>
+        <MissionPanel
+          levels={levels}
+          level={level}
+          levelIndex={levelIndex}
+          nodes={nodes}
+          edges={edges}
+          result={result}
+          onValidate={handleValidate}
+          onSelectLevel={handleSelectLevel}
+          onResetRun={handleResetRun}
+        />
 
         <ReactFlow
           nodes={nodes}
@@ -155,7 +155,6 @@ function CloudTracerBoard() {
             nodeColor={miniMapNodeColor}
             className="!bg-slate-900/90 !border !border-slate-700/70"
           />
-          <Controls className="!bg-slate-900/80 !border !border-slate-700/70" />
         </ReactFlow>
       </main>
     </div>
