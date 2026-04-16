@@ -15,9 +15,35 @@ import Sidebar from './components/Sidebar';
 import MissionPanel from './components/MissionPanel';
 import { nodeTypes } from './components/NodeTemplates';
 import { levels, validateLevel } from './data/levels';
+import { getLevelSolution } from './data/solutions';
 
 const initialNodes = [];
 const initialEdges = [];
+const revealPositionScale = 1.08;
+
+const revealEdgeDefaults = {
+  animated: true,
+  style: { stroke: '#38bdf8', strokeWidth: 2 },
+  markerEnd: { type: MarkerType.ArrowClosed, color: '#38bdf8' },
+  type: 'smoothstep',
+};
+
+const normalizeRevealEdges = (edges) =>
+  edges.map((edge) => ({
+    ...revealEdgeDefaults,
+    ...edge,
+    style: { ...revealEdgeDefaults.style, ...(edge.style || {}) },
+    markerEnd: { ...revealEdgeDefaults.markerEnd, ...(edge.markerEnd || {}) },
+  }));
+
+const spreadRevealNodes = (nodes) =>
+  nodes.map((node) => ({
+    ...node,
+    position: {
+      x: Math.round(node.position.x * revealPositionScale),
+      y: Math.round(node.position.y * revealPositionScale),
+    },
+  }));
 
 function CloudTracerBoard() {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
@@ -136,6 +162,21 @@ function CloudTracerBoard() {
     setLevelIndex(0);
     resetCanvas();
   }, [resetCanvas]);
+
+  const handleRevealSolution = useCallback(() => {
+    const solution = getLevelSolution(level.code);
+    if (!solution) {
+      setResult({ ok: false, message: 'Solution reveal is not configured for this level yet.' });
+      return;
+    }
+
+    setNodes(spreadRevealNodes(solution.nodes));
+    setEdges(normalizeRevealEdges(solution.edges));
+    setResult(null);
+    setSelection({ nodes: [], edges: [] });
+    clipboardRef.current = null;
+    pasteCountRef.current = 0;
+  }, [level.code, setEdges, setNodes]);
 
   const handleToggleSelectMode = useCallback(() => {
     setIsSelectMode((current) => !current);
@@ -280,6 +321,7 @@ function CloudTracerBoard() {
           isSelectMode={isSelectMode}
           result={result}
           onValidate={handleValidate}
+          onRevealSolution={handleRevealSolution}
           onSelectLevel={handleSelectLevel}
           onToggleSelectMode={handleToggleSelectMode}
           onResetRun={handleResetRun}
@@ -299,8 +341,6 @@ function CloudTracerBoard() {
           selectionMode={SelectionMode.Partial}
           panOnDrag={!isSelectMode}
           deleteKeyCode={null}
-          fitView
-          fitViewOptions={{ padding: 0.25 }}
           defaultEdgeOptions={{ animated: true }}
           className={isSelectMode ? 'bg-transparent cursor-crosshair' : 'bg-transparent'}
         >

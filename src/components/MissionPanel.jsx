@@ -20,6 +20,7 @@ function MissionPanel({
   isSelectMode,
   result,
   onValidate,
+  onRevealSolution,
   onSelectLevel,
   onToggleSelectMode,
   onResetRun,
@@ -64,17 +65,29 @@ function MissionPanel({
             <h1 className="mt-1 text-2xl font-semibold text-slate-100">
               {level.code}: {level.title}
             </h1>
-            <button
-              ref={problemButtonRef}
-              type="button"
-              onClick={() => setIsProblemOpen((current) => !current)}
-              className="mt-2 rounded-lg border border-amber-300/70 bg-amber-500/20 px-3 py-1 text-xs font-semibold uppercase tracking-[0.1em] text-amber-100 transition hover:border-amber-200"
-              aria-expanded={isProblemOpen}
-              aria-label="Toggle level problem statement"
-              title="Show level problem"
-            >
-              Problems
-            </button>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                ref={problemButtonRef}
+                type="button"
+                onClick={() => setIsProblemOpen((current) => !current)}
+                className="rounded-lg border border-amber-300/70 bg-amber-500/20 px-3 py-1 text-xs font-semibold uppercase tracking-[0.1em] text-amber-100 transition hover:border-amber-200"
+                aria-expanded={isProblemOpen}
+                aria-label="Toggle level problem statement"
+                title="Show level problem"
+              >
+                Problems
+              </button>
+
+              <button
+                type="button"
+                onClick={onRevealSolution}
+                className="rounded-lg border border-emerald-300/70 bg-emerald-500/20 px-3 py-1 text-xs font-semibold uppercase tracking-[0.1em] text-emerald-100 transition hover:border-emerald-200"
+                aria-label="Reveal the current level solution on the canvas"
+                title="Reveal solution"
+              >
+                Solution
+              </button>
+            </div>
 
             {isProblemOpen && (
               <div
@@ -91,7 +104,7 @@ function MissionPanel({
             {levels.map((item, index) => {
               const active = index === levelIndex;
               const hovered = hoveredLevel === index;
-              const showFull = active || hovered;
+              const showFull = hovered;
 
               return (
                 <button
