@@ -182,8 +182,6 @@ function MissionPanel({
           <div className="glass-panel reveal-up absolute bottom-14 left-0 w-[360px] rounded-2xl p-4">
             <p className="text-sm leading-relaxed text-slate-300">{level.briefing}</p>
             <p className="mt-3 rounded-lg border border-slate-700/70 bg-slate-900/50 p-3 text-sm text-slate-200">{level.objective}</p>
-            <p className="mt-2 text-xs text-slate-400">Independent mode: only this level rules are validated. Your canvas stays as-is across levels.</p>
-            <p className="mt-2 text-xs text-slate-400">Select mode: box-select and move groups. Ctrl/Cmd+C to copy, Ctrl/Cmd+V to paste, Delete/Backspace to remove selection.</p>
 
             <div className="mt-4 text-xs text-slate-400">
               <span className="uppercase tracking-[0.18em]">Canvas Inventory</span>
